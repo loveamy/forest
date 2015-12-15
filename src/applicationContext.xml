@@ -1,0 +1,155 @@
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:jee="http://www.springframework.org/schema/jee"
+	xmlns:tx="http://www.springframework.org/schema/tx" xmlns:context="http://www.springframework.org/schema/context"
+	xmlns:aop="http://www.springframework.org/schema/aop" xmlns:cache="http://www.springframework.org/schema/cache"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans
+	http://www.springframework.org/schema/beans/spring-beans-2.5.xsd 
+	http://www.springframework.org/schema/tx 
+	http://www.springframework.org/schema/tx/spring-tx-2.5.xsd 
+	http://www.springframework.org/schema/jee 
+	http://www.springframework.org/schema/jee/spring-jee-2.5.xsd
+	http://www.springframework.org/schema/aop 
+	http://www.springframework.org/schema/aop/spring-aop-2.5.xsd 
+	http://www.springframework.org/schema/context 
+	http://www.springframework.org/schema/context/spring-context-2.5.xsd
+	http://www.springframework.org/schema/cache
+	http://www.springframework.org/schema/cache/spring-cache-3.2.xsd"
+	default-lazy-init="false">
+
+	<!--使用annotation自动注册bean,可以用逗号分隔的列表来分别指定包含各个类的包 -->
+	<context:component-scan base-package="com.miracle9.game" />
+	<context:component-scan base-package="com.miracle9.common" />
+	
+	<context:property-placeholder location="classpath:jdbc.properties"/>
+
+	<bean id="dataSource" class="com.mchange.v2.c3p0.ComboPooledDataSource">
+		<property name="driverClass" value="${jdbc.driver}" />
+		<property name="jdbcUrl" value="${jdbc.url}" />
+		<property name="user" value="${jdbc.username}" />
+		<property name="password" value="${jdbc.password}" />
+
+		<property name="initialPoolSize" value="5" />
+		<!--连接空闲时间(秒) -->
+		<property name="maxIdleTime" value="300" />
+		<property name="maxPoolSize" value="50" />
+		<property name="minPoolSize" value="5" />
+		<!--获取新连接的等待时间(毫秒)0一直等待 -->
+		<property name="checkoutTimeout" value="120000" />
+		<property name="idleConnectionTestPeriod" value="60" />
+		<property name="maxStatements" value="0" />
+		<property name="maxStatementsPerConnection" value="100" />
+		
+	</bean>
+
+	<bean id="sessionFactory"
+		class="org.springframework.orm.hibernate3.annotation.AnnotationSessionFactoryBean">
+		<property name="dataSource" ref="dataSource" />
+		<!--下划线命名策略 -->
+		<property name="namingStrategy">
+			<bean class="org.hibernate.cfg.ImprovedNamingStrategy" />
+		</property>
+		<!-- 配置Hibernate拦截器,自动填充数据的插入、更新时间 -->
+		<!-- <property name="entityInterceptor" ref="entityInterceptor" /> -->
+		<property name="hibernateProperties">
+			<props>
+				<prop key="hibernate.dialect">${dialect}</prop>
+				<prop key="hibernate.hbm2ddl.auto">update</prop>
+				<prop key="hibernate.show_sql">false</prop>
+				<prop key="hibernate.format_sql">false</prop>
+				<prop key="hibernate.c3p0.max_statements">0</prop>
+			</props>
+		</property>
+		<property name="packagesToScan">
+		     <list> 
+         		<value>com.miracle9.game.entity</value> 
+         		<value>com.miracle9.common.entity</value> 
+     		</list>  
+		</property>
+	</bean>
+
+	<bean id="transactionManager"
+		class="org.springframework.orm.hibernate3.HibernateTransactionManager">
+		<property name="sessionFactory" ref="sessionFactory" />
+	</bean>
+
+	<!-- 使用annotation定义事务 -->
+	<tx:annotation-driven transaction-manager="transactionManager"
+		proxy-target-class="true" />
+
+	<aop:config proxy-target-class="true">
+		<aop:advisor advice-ref="txAdvice"
+			pointcut="execution( * com.miracle9.game.service.*.*(..))" />
+	</aop:config>
+
+	<tx:advice id="txAdvice" transaction-manager="transactionManager">
+		<tx:attributes>
+			<tx:method name="*" propagation="REQUIRED" />
+		</tx:attributes>
+	</tx:advice>
+
+	<bean id="codecFilter" class="org.apache.mina.filter.codec.ProtocolCodecFilter">
+		<constructor-arg ref="myCodecFactory">
+		</constructor-arg>
+	</bean>
+
+	<bean id="executorFilter" class="org.apache.mina.filter.executor.ExecutorFilter"></bean>
+
+	<bean id="filterChainBuilder"
+		class="org.apache.mina.core.filterchain.DefaultIoFilterChainBuilder">
+		<property name="filters">
+			<map>
+				<entry key="codecFilter" value-ref="codecFilter"></entry>
+				<entry key="executorFilter" value-ref="executorFilter"></entry>
+			</map>
+		</property>
+	</bean>
+	
+	<!-- 游戏socket配置 -->
+	<bean id="gameSocketAddress" class="java.net.InetSocketAddress">
+		<constructor-arg>
+			<value>10010</value>
+		</constructor-arg>
+	</bean>
+
+	<bean class="org.apache.mina.transport.socket.nio.NioSocketAcceptor"
+		init-method="bind" destroy-method="unbind">
+		<property name="defaultLocalAddress" ref="gameSocketAddress"></property>
+		<property name="handler" ref="gameSocketHandler"></property>
+		<property name="reuseAddress" value="true"></property>
+		<property name="filterChainBuilder" ref="filterChainBuilder"></property>
+	</bean>
+
+
+	<!--后台管理socket配置 -->
+	<bean id="manageInetSocketAddress" class="java.net.InetSocketAddress">
+		<constructor-arg>
+			<value>8888</value>
+		</constructor-arg>
+	</bean>
+
+	<bean class="org.apache.mina.transport.socket.nio.NioSocketAcceptor"
+		init-method="bind" destroy-method="unbind">
+		<property name="defaultLocalAddress" ref="manageInetSocketAddress"></property>
+		<property name="handler" ref="manageSocketHandler"></property>
+		<property name="reuseAddress" value="true"></property>
+		<property name="filterChainBuilder" ref="filterChainBuilder"></property>
+	</bean>
+
+
+
+
+	<!--缓存配置 -->
+	<cache:annotation-driven cache-manager="cacheManager" />
+	<bean id="cacheManager" class="org.springframework.cache.support.SimpleCacheManager">
+		<property name="caches">
+			<set>
+				<bean
+					class="org.springframework.cache.concurrent.ConcurrentMapCacheFactoryBean"
+					name="default" />
+				<bean
+					class="org.springframework.cache.concurrent.ConcurrentMapCacheFactoryBean"
+					name="springCache" />
+			</set>
+		</property>
+	</bean>
+</beans>
